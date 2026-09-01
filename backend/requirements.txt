@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+python-multipart
+ultralytics
+opencv-python
+numpy
+networkx
+pillow
+python-magic-bin
