@@ -581,6 +581,12 @@ def run_evacuation(
     hazard_info = apply_hazard(graph, fire_room_id)
 
     # 3. Route each occupant
+    #
+    # Important fire semantics:
+    # The fire room is blocked for people who are elsewhere, but an occupant
+    # who is already inside the fire room MUST be allowed to leave it.  The
+    # previous implementation blocked every edge touching the fire room,
+    # which made the correct emergency case return "NO_ROUTE".
     evacuations = []
     for occ in occupants:
         occ_id = occ.get("id", "unknown")
@@ -588,7 +594,23 @@ def run_evacuation(
         mobility = occ.get("mobility", "normal")
         name = occ.get("name", occ_id)
 
-        result = calculate_route_for_occupant(graph, location, mobility)
+        # Give each occupant an isolated view of the hazard graph.  If this
+        # occupant starts in the fire room, reopen only the room's immediate
+        # connections so they can escape; other occupants still cannot enter
+        # that room.
+        occupant_graph = graph.copy()
+        if location == fire_room_id and location in occupant_graph:
+            for neighbor in occupant_graph.neighbors(location):
+                edge_data = occupant_graph[location][neighbor]
+                edge_data["blocked"] = False
+                # Keep a strong penalty so the route leaves the hazardous
+                # area immediately rather than treating it as normal space.
+                edge_data["hazard"] = max(
+                    float(edge_data.get("hazard", 0)),
+                    DEFAULT_ADJACENT_PENALTY,
+                )
+
+        result = calculate_route_for_occupant(occupant_graph, location, mobility)
         result["occupant_id"] = occ_id
         result["occupant_name"] = name
         result["location_id"] = location

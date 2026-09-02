@@ -1,8 +1,4 @@
 from ultralytics import YOLOWorld
-<<<<<<< HEAD
-import cv2
-=======
->>>>>>> origin/main
 import numpy as np
 
 
@@ -21,81 +17,34 @@ class EnvironmentDetector:
             "person",
             "door",
             "doorway",
-<<<<<<< HEAD
-            "room door",
-            "office door",
-            "wooden door",
-            "glass door",
-=======
->>>>>>> origin/main
             "entrance",
             "exit door",
             "emergency exit",
             "exit sign",
-<<<<<<< HEAD
-            "fire exit sign",
-=======
->>>>>>> origin/main
             "stairs",
             "staircase",
             "stairway",
             "ramp",
             "wheelchair ramp",
             "elevator",
-<<<<<<< HEAD
-            "lift",
-=======
->>>>>>> origin/main
             "corridor",
             "hallway",
             "fire",
             "flames",
             "smoke",
             "obstacle",
-<<<<<<< HEAD
-            "blocked passage",
-            "fire extinguisher"
-=======
             "blocked passage"
->>>>>>> origin/main
         ]
 
         self.model.set_classes(self.classes)
 
         print("YOLO-World ready.")
 
-<<<<<<< HEAD
-    def _preprocess(self, image: np.ndarray) -> np.ndarray:
-        """Enhance image for better detection of interior features.
-
-        CLAHE contrast boost helps dark doors on white walls.
-        Bilateral filter preserves edges while reducing noise.
-        """
-        lab = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)
-        l, a, b = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-        l = clahe.apply(l)
-        enhanced = cv2.cvtColor(
-            cv2.merge([l, a, b]), cv2.COLOR_LAB2RGB
-        )
-        enhanced = cv2.bilateralFilter(enhanced, 9, 75, 75)
-        return enhanced
-
-    def analyze(self, image):
-
-        # Preprocess to improve detection of interior features
-        image = self._preprocess(image)
-
-        results = self.model.predict(
-            image,
-            conf=0.03,
-=======
     def analyze(self, image):
 
         results = self.model.predict(
             image,
             conf=0.08,
->>>>>>> origin/main
             iou=0.45,
             imgsz=1280,
             verbose=False

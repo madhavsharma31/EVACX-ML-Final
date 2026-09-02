@@ -1,17 +1,11 @@
-<<<<<<< HEAD
 from fastapi import FastAPI, Form, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import logging
-=======
-from fastapi import FastAPI, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
->>>>>>> origin/main
 from app.graph.builder import build_graph
 from app.graph.routing import calculate_route
 from PIL import Image
 import io
 import numpy as np
-<<<<<<< HEAD
 from typing import Optional
 
 from app.ai.detector import EnvironmentDetector
@@ -21,10 +15,6 @@ from app.ai.landmarks import generate_landmarks
 from app.ai.floorplan_single import generate_floor_plan
 
 logger = logging.getLogger(__name__)
-=======
-
-from app.ai.detector import EnvironmentDetector
->>>>>>> origin/main
 
 
 app = FastAPI(
@@ -64,16 +54,9 @@ async def analyze(
 
     contents = await file.read()
 
-<<<<<<< HEAD
-    try:
-        image = Image.open(io.BytesIO(contents)).convert("RGB")
-    except Exception as exc:
-        return {"success": False, "error": f"Invalid image upload: {exc}"}
-=======
     image = Image.open(
         io.BytesIO(contents)
     ).convert("RGB")
->>>>>>> origin/main
 
     image_np = np.array(image)
 
@@ -93,16 +76,12 @@ async def analyze_and_route(
     file: UploadFile = File(...),
     mobility: str = "normal"
 ):
-<<<<<<< HEAD
-    if mobility not in {"normal", "wheelchair", "elderly", "temporary_injury", "child"}:
-        mobility = "normal"
 
     contents = await file.read()
 
-    try:
-        image = Image.open(io.BytesIO(contents)).convert("RGB")
-    except Exception as exc:
-        return {"success": False, "error": f"Invalid image upload: {exc}"}
+    image = Image.open(
+        io.BytesIO(contents)
+    ).convert("RGB")
 
     image_np = np.array(image)
     img_h, img_w = image_np.shape[:2]
@@ -158,9 +137,7 @@ async def analyze_and_route(
     # Uses the original unfiltered detections for the graph
     # so the existing routing behaviour is preserved.
 
-    # Only confidence-filtered detections enter the routing graph.
-    # Low-confidence visual noise must never create a navigation edge.
-    graph, exits = build_graph(filtered)
+    graph, exits = build_graph(raw_detections)
     logger.info(
         "[AI] Digital twin nodes: %d, edges: %d",
         graph.number_of_nodes(),
@@ -169,58 +146,20 @@ async def analyze_and_route(
 
     # -------------------------------
     # 6. ROUTING
-=======
-
-    contents = await file.read()
-
-    image = Image.open(
-        io.BytesIO(contents)
-    ).convert("RGB")
-
-    image_np = np.array(image)
-
-    # -------------------------------
-    # AI ANALYSIS
-    # -------------------------------
-
-    detections = detector.analyze(
-        image_np
-    )
-
-    # -------------------------------
-    # BUILD DIGITAL TWIN GRAPH
-    # -------------------------------
-
-    graph, exits = build_graph(
-        detections
-    )
-
-    # -------------------------------
-    # ROUTING
->>>>>>> origin/main
     # -------------------------------
 
     route = calculate_route(
         graph,
-<<<<<<< HEAD
-=======
-        start="current_position",
->>>>>>> origin/main
         mobility=mobility
     )
 
     # -------------------------------
-<<<<<<< HEAD
     # 7. ENVIRONMENT SUMMARY
     # (uses filtered detections for accurate counts)
-=======
-    # ENVIRONMENT SUMMARY
->>>>>>> origin/main
     # -------------------------------
 
     people_count = sum(
         1
-<<<<<<< HEAD
         for d in filtered
         if d["type"] == "person"
     )
@@ -235,33 +174,11 @@ async def analyze_and_route(
         d for d in filtered
         if d["type"] in {
             "fire",
-            "flames",
-=======
-        for d in detections
-        if d["type"] == "person"
-    )
-
-    exit_count = len(exits)
-
-    hazards = [
-        d for d in detections
-        if d["type"] in {
-            "fire",
->>>>>>> origin/main
             "smoke",
             "obstacle",
             "blocked passage"
         }
     ]
-
-<<<<<<< HEAD
-    detection_confidences = [
-        float(d.get("confidence", 0)) for d in filtered
-    ]
-    ai_confidence = (
-        sum(detection_confidences) / len(detection_confidences)
-        if detection_confidences else 0.0
-    )
 
     # -------------------------------
     # 8. GRAPH NODES + EDGES
@@ -285,64 +202,6 @@ async def analyze_and_route(
             "target": target,
             "distance": round(data.get("distance", 0), 2),
             "blocked": data.get("blocked", False),
-=======
-    # -------------------------------
-    # GRAPH NODES
-    # -------------------------------
-
-    nodes = []
-
-    for node_id, data in graph.nodes(
-        data=True
-    ):
-
-        nodes.append({
-            "id": node_id,
-            "type": data.get(
-                "type"
-            ),
-            "label": data.get(
-                "label"
-            ),
-            "x": data.get(
-                "x",
-                0
-            ),
-            "y": data.get(
-                "y",
-                0
-            ),
-            "confidence": data.get(
-                "confidence",
-                1
-            )
-        })
-
-    # -------------------------------
-    # GRAPH EDGES
-    # -------------------------------
-
-    edges = []
-
-    for source, target, data in graph.edges(
-        data=True
-    ):
-
-        edges.append({
-            "source": source,
-            "target": target,
-            "distance": round(
-                data.get(
-                    "distance",
-                    0
-                ),
-                2
-            ),
-            "blocked": data.get(
-                "blocked",
-                False
-            )
->>>>>>> origin/main
         })
 
     # -------------------------------
@@ -352,22 +211,17 @@ async def analyze_and_route(
     return {
         "success": True,
 
-<<<<<<< HEAD
         "raw_detections": raw_detections,
         "filtered_detections": filtered,
         "landmarks": landmarks,
 
         "floor_plan": floor_plan,
 
-=======
->>>>>>> origin/main
         "environment": {
             "people": people_count,
             "exits": exit_count,
             "hazards": len(hazards),
-<<<<<<< HEAD
             "detections": len(filtered),
-            "confidence": round(ai_confidence, 2),
         },
 
         "detections": filtered,
@@ -529,22 +383,6 @@ async def photo_reconstruction(
     return response
 
 
-=======
-            "detections": len(detections)
-        },
-
-        "detections": detections,
-
-        "digital_twin": {
-            "nodes": nodes,
-            "edges": edges
-        },
-
-        "route": route
-    }
-
-from app.graph.demo_graph import create_demo_graph
->>>>>>> origin/main
 @app.post("/api/demo/route")
 async def demo_route(
     mobility: str = "normal"
@@ -600,7 +438,6 @@ async def demo_fire(
         },
         "mobility": mobility,
         "route": route
-<<<<<<< HEAD
     }
 
 
@@ -608,7 +445,7 @@ async def demo_fire(
 # SAVE EDITED FLOOR PLAN
 # ==========================================================
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class FloorPlanSaveRequest(BaseModel):
@@ -617,7 +454,7 @@ class FloorPlanSaveRequest(BaseModel):
     units: str = "relative"
     approximate: bool = True
     confidence: float = 0.5
-    elements: list[dict] = Field(default_factory=list)
+    elements: list[dict] = []
 
 
 @app.post("/api/v1/building/save-floor-plan")
@@ -723,6 +560,3 @@ async def simulate_evacuation(req: EvacuationRequest):
     )
 
     return result
-=======
-    }
->>>>>>> origin/main
