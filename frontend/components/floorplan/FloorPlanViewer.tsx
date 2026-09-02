@@ -523,8 +523,14 @@ export default function FloorPlanViewer({
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
       >
-        <svg width="100%" height="100%" className="absolute inset-0"
-          style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}>
+        <svg
+          width="100%"
+          height="520"
+          viewBox={`0 0 ${Math.max(floorPlan.width + pad * 2, 1000)} ${Math.max(floorPlan.height + pad * 2, 600)}`}
+          preserveAspectRatio="xMidYMid meet"
+          className="absolute inset-0"
+          style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}
+        >
 
           {/* Grid */}
           {showGrid && effectiveEditMode && (

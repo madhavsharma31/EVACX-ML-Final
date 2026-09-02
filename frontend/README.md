@@ -34,3 +34,13 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+
+## EVAC-X integration notes
+
+The browser talks to the Next.js `/api/*` proxy routes. Those routes forward
+requests to FastAPI using `NEXT_PUBLIC_BACKEND_HTTP` (or the local default).
+
+Evacuation route selection is performed by the FastAPI backend with NetworkX
+Dijkstra. The frontend is responsible for floor-plan editing, visualisation,
+and evacuation animation only.

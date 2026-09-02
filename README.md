@@ -62,8 +62,17 @@ Go to **http://localhost:3000** in your browser.
 | URL | Description |
 |-----|-------------|
 | `/` | Main dashboard — single image AI analysis & evacuation demo |
-| `/reconstruct` | Single-photo floor plan reconstruction |
+| `/reconstruct` | Photo-based floor plan reconstruction |
 | `/reconstruct-3d` | Multi-photo reconstruction + full evacuation simulation |
+
+## Routing safety model
+
+- **NetworkX Dijkstra is the authoritative routing engine.**
+- Hazards raise traversal cost or block edges; blocked edges are never selected.
+- Wheelchair routes cannot traverse stairs and receive a preference for ramps.
+- Elderly, temporary-injury, and child profiles penalise stair traversal.
+- The frontend visualises backend routes; it does not independently choose evacuation paths.
+- AI detections are treated as approximate evidence and should be reviewed before real-world use.
 
 ## How It Works
 
@@ -94,9 +103,9 @@ Navigation graph generation
         ↓
 Add occupants + select fire room
         ↓
-BFS routing with mobility constraints
+NetworkX Dijkstra routing with mobility constraints
         ↓
-Wheelchair users → prefer ramps, never stairs
+Wheelchair users → never stairs; prefer accessible ramps
         ↓
 Animated evacuation on 2D floor plan
 ```
@@ -109,7 +118,7 @@ Animated evacuation on 2D floor plan
 - **Fire simulation** — select a room, see it highlighted in red on the floor plan
 - **Accessibility-aware routing** — wheelchair users are routed through ramps, never stairs
 - **Animated evacuation** — occupants move along their routes with start/pause/reset controls
-- **Client-side routing** — BFS graph traversal runs in the browser (no backend dependency for route calculation)
+- **NetworkX Dijkstra routing** — hazard-aware, mobility-aware routing runs on the backend
 
 ## Project Structure
 
@@ -125,11 +134,10 @@ EVACX-ML-Final/
 │   │   ├── routing/                 # Graph adapter for routing
 │   │   └── models/                  # Pydantic models
 │   ├── requirements.txt
-│   └── venv/                        # Python virtual environment
 ├── frontend/
 │   ├── app/
 │   │   ├── page.tsx                 # Main dashboard
-│   │   ├── reconstruct/             # Single-photo reconstruction page
+│   │   ├── reconstruct/             # Photo-based reconstruction page
 │   │   ├── reconstruct-3d/          # Multi-photo + evacuation simulation
 │   │   └── api/                     # Next.js API routes (proxy to backend)
 │   ├── components/
@@ -137,11 +145,9 @@ EVACX-ML-Final/
 │   │   │   └── FloorPlanViewer.tsx  # SVG floor plan renderer + editor
 │   │   └── SimulationControls.tsx   # Evacuation animation controls
 │   ├── lib/
-│   │   ├── floorplan-graph.ts       # Navigation graph generator
-│   │   └── evacuation-routing.ts    # BFS routing with mobility constraints
+│   │   ├── floorplan-graph.ts       # Floor-plan geometry helpers
+│   │   └── evacuation-routing.ts    # Shared evacuation result types
 │   └── package.json
-└── weights/
-    └── clip/                        # CLIP model weights
 ```
 
 ## Environment Variables

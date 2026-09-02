@@ -3,6 +3,7 @@
 import {
   useEffect,
   useState,
+  type ChangeEvent,
 } from "react";
 import Link from "next/link";
 
@@ -10,7 +11,8 @@ type Mobility =
   | "normal"
   | "wheelchair"
   | "elderly"
-  | "temporary_injury";
+  | "temporary_injury"
+  | "child";
 
 type RouteData = {
   success: boolean;
@@ -19,6 +21,7 @@ type RouteData = {
   cost: number;
   risk: string;
   mobility: string;
+  confidence?: number;
 };
 
 type DemoResponse = {
@@ -32,10 +35,6 @@ type DemoResponse = {
   };
   route: RouteData;
 };
-
-const API =
-  process.env.NEXT_PUBLIC_BACKEND_HTTP ||
-  "http://127.0.0.1:8000";
 
 export default function Home() {
   const [mobility, setMobility] =
@@ -150,6 +149,8 @@ async function analyzeBuilding() {
 
         detections:
           data.environment.detections ?? 0,
+        confidence:
+          data.environment.confidence ?? 0,
       });
     }
 
@@ -167,7 +168,9 @@ async function analyzeBuilding() {
     console.error(err);
 
     setError(
-      "AI analysis failed. Make sure the FastAPI server is running."
+      err instanceof Error
+        ? err.message
+        : "AI analysis failed. Make sure the FastAPI server is running."
     );
 
   } finally {
@@ -206,11 +209,11 @@ function handleImageSelect(
     try {
       const endpoint =
         selectedScenario === "fire"
-          ? "/api/demo/fire"
-          : "/api/demo/route";
+          ? "/api/demo-fire"
+          : "/api/demo-route";
 
       const response = await fetch(
-        `${API}${endpoint}?mobility=${selectedMobility}`,
+        `${endpoint}?mobility=${selectedMobility}`,
         {
           method: "POST",
         }
@@ -230,7 +233,9 @@ function handleImageSelect(
       console.error(err);
 
       setError(
-        "Unable to connect to the evacuation engine."
+        err instanceof Error
+          ? err.message
+          : "Unable to connect to the evacuation engine."
       );
     } finally {
       setLoading(false);
@@ -458,7 +463,7 @@ function handleImageSelect(
           <StatCard
             icon="🧠"
             label="AI Confidence"
-            value="87%"
+            value={`${Math.round(environment.confidence * 100)}%`}
             sub="environment analysis"
           />
 
@@ -693,11 +698,7 @@ function handleImageSelect(
 
                     <InfoBox
                       label="Confidence"
-                      value={
-                        route.risk === "LOW"
-                          ? "HIGH"
-                          : "MEDIUM"
-                      }
+                      value={`${Math.round((route.confidence ?? 0.7) * 100)}%`}
                     />
 
                   </div>
@@ -770,6 +771,9 @@ function handleImageSelect(
 
                 <option value="temporary_injury">
                   🩼 Temporary Injury
+                </option>
+                <option value="child">
+                  🧒 Child
                 </option>
 
               </select>

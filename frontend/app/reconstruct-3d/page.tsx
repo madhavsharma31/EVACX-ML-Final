@@ -6,9 +6,7 @@ import FloorPlanViewer from "@/components/floorplan/FloorPlanViewer";
 import type { RouteOverlay, OccupantOverlay } from "@/components/floorplan/FloorPlanViewer";
 import SimulationControls from "@/components/SimulationControls";
 import type { SimState } from "@/components/SimulationControls";
-import { buildNavigationGraph, getNodesInRoom, getElementCenter } from "@/lib/floorplan-graph";
-import type { NavigationGraph } from "@/lib/floorplan-graph";
-import { calculateEvacuation } from "@/lib/evacuation-routing";
+import { getElementCenter } from "@/lib/floorplan-graph";
 import type { EvacuationPlan, RouteResult, MobilityType } from "@/lib/evacuation-routing";
 
 /* -------------------------------------------------------
@@ -113,9 +111,6 @@ export default function Reconstruct3DPage() {
   }>>([]);
   const [selectedOccupant, setSelectedOccupant] = useState<string>("");
 
-  /* Navigation graph */
-  const [navGraph, setNavGraph] = useState<NavigationGraph | null>(null);
-
   /* Evacuation plan (routes) */
   const [evacPlan, setEvacPlan] = useState<EvacuationPlan | null>(null);
   const [needsRecalc, setNeedsRecalc] = useState(false);
@@ -135,25 +130,17 @@ export default function Reconstruct3DPage() {
   const exits = currentPlan?.elements.filter((e) => e.type === "exit") || [];
   const allLocations = [...rooms, ...corridors];
 
-  /* ---- Rebuild graph when floor plan changes ---- */
+  /* Any floor-plan change invalidates previously calculated routes. */
   useEffect(() => {
-    if (!currentPlan || currentPlan.elements.length === 0) {
-      setNavGraph(null);
-      return;
-    }
-    const graph = buildNavigationGraph(currentPlan.elements);
-    setNavGraph(graph);
-    // Mark that routes need recalculation
     if (evacPlan) setNeedsRecalc(true);
   }, [currentPlan]);
 
-  /* ---- Rebuild graph when saved result changes ---- */
+  /* Give the demo a usable default hazard location as soon as rooms exist. */
   useEffect(() => {
-    if (savedResult?.floor_plan) {
-      const graph = buildNavigationGraph(savedResult.floor_plan.elements);
-      setNavGraph(graph);
+    if (!fireRoom && rooms.length > 0) {
+      setFireRoom(rooms[0].id);
     }
-  }, [savedResult]);
+  }, [rooms, fireRoom]);
 
   /* ---- Photo handling ---- */
   const handlePhotosAdd = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -254,41 +241,104 @@ export default function Reconstruct3DPage() {
   };
 
   /* ---- Calculate evacuation routes ---- */
-  const calculateRoutes = useCallback(() => {
-    if (!fireRoom || occupants.length === 0 || !navGraph || !currentPlan) return;
+  const calculateRoutes = useCallback(async () => {
+    if (!fireRoom || occupants.length === 0 || !currentPlan) return;
 
-    // Find blocked nodes (nodes inside the fire room)
-    const blockedNodes = getNodesInRoom(navGraph, fireRoom, currentPlan.elements);
+    try {
+      const response = await fetch("/api/evacuate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          floor_plan: currentPlan,
+          fire_room_id: fireRoom,
+          occupants: occupants.map((o) => ({
+            id: o.id,
+            name: o.name,
+            location_id: o.location_id,
+            mobility: o.mobility,
+          })),
+        }),
+      });
 
-    // Find blocked edges (edges touching blocked nodes)
-    const blockedEdges = new Set<string>();
-    for (const edge of navGraph.edges) {
-      if (blockedNodes.includes(edge.source) || blockedNodes.includes(edge.target)) {
-        blockedEdges.add([edge.source, edge.target].sort().join("::"));
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || "Evacuation engine failed.");
       }
+
+      const graphNodes = (data.graph?.nodes || []) as Array<{
+        id: string;
+        x: number;
+        y: number;
+      }>;
+
+      const nodeMap = new Map(graphNodes.map((n) => [n.id, n]));
+      const blockedEdges = new Set<string>(
+        (data.graph?.edges || [])
+          .filter((e: { blocked?: boolean }) => e.blocked)
+          .map((e: { source: string; target: string }) =>
+            [e.source, e.target].sort().join("::")
+          )
+      );
+
+      const routes: RouteResult[] = (data.evacuations || []).map(
+        (ev: {
+          occupant_id: string;
+          occupant_name: string;
+          success: boolean;
+          route?: string[];
+          recommended_exit?: string;
+          distance?: number;
+          cost?: number;
+          risk?: string;
+          uses_stairs?: boolean;
+          uses_ramp?: boolean;
+          accessible_route?: boolean;
+          message?: string;
+          reason?: string;
+        }) => {
+          const route = ev.route || [];
+          const routeCoords = route
+            .map((id) => nodeMap.get(id))
+            .filter((n): n is { id: string; x: number; y: number } => Boolean(n))
+            .map((n) => ({ x: n.x, y: n.y }));
+
+          const failedStatus: RouteResult["status"] =
+            ev.reason === "NO_ACCESSIBLE_ROUTE" ? "no_route" : "no_route";
+
+          return {
+            occupantId: ev.occupant_id,
+            occupantName: ev.occupant_name,
+            success: ev.success,
+            route,
+            routeCoords,
+            recommendedExit: ev.recommended_exit || "",
+            distance: Number(ev.distance ?? ev.cost ?? 0),
+            risk: ev.risk || (ev.success ? "MEDIUM" : "HIGH"),
+            usesStairs: Boolean(ev.uses_stairs),
+            usesRamp: Boolean(ev.uses_ramp),
+            accessibleRoute: Boolean(ev.accessible_route),
+            status: ev.success ? "waiting" : failedStatus,
+            message: ev.message,
+          };
+        }
+      );
+
+      setEvacPlan({
+        fireRoomId: fireRoom,
+        blockedNodes: data.hazard?.blocked_nodes || [],
+        blockedEdges,
+        routes,
+      });
+      setNeedsRecalc(false);
+
+      if (routes.length > 0) {
+        setSelectedOccupant(routes[0].occupantId);
+      }
+    } catch (err) {
+      console.error("Evacuation calculation failed:", err);
+      setError(err instanceof Error ? err.message : "Evacuation calculation failed.");
     }
-
-    const plan = calculateEvacuation(
-      navGraph,
-      occupants.map((o) => ({
-        id: o.id,
-        name: o.name,
-        locationId: o.location_id,
-        mobility: o.mobility as MobilityType,
-      })),
-      fireRoom,
-      blockedNodes,
-      blockedEdges
-    );
-
-    setEvacPlan(plan);
-    setNeedsRecalc(false);
-
-    // Select first occupant by default
-    if (plan.routes.length > 0) {
-      setSelectedOccupant(plan.routes[0].occupantId);
-    }
-  }, [fireRoom, occupants, navGraph, currentPlan]);
+  }, [fireRoom, occupants, currentPlan]);
 
   /* ---- Build route overlays for FloorPlanViewer ---- */
   const buildRouteOverlays = useCallback((): RouteOverlay[] => {
@@ -858,7 +908,7 @@ export default function Reconstruct3DPage() {
                         ))}
                       </select>
                       <div className="flex gap-2">
-                        {["normal", "wheelchair", "limited_mobility"].map((m) => (
+                        {["normal", "wheelchair", "elderly", "temporary_injury", "child"].map((m) => (
                           <label key={m} className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer">
                             <input type="radio" name={`mobility-${occ.id}`} checked={occ.mobility === m}
                               onChange={() => {
@@ -868,7 +918,7 @@ export default function Reconstruct3DPage() {
                               }}
                               className="accent-teal-600"
                             />
-                            {m === "wheelchair" ? "♿ Wheelchair" : m === "limited_mobility" ? "🚶 Limited" : "✓ Normal"}
+                            {m === "wheelchair" ? "♿ Wheelchair" : m === "elderly" ? "👴 Elderly" : m === "temporary_injury" ? "🩼 Injury" : m === "child" ? "🧒 Child" : "✓ Normal"}
                           </label>
                         ))}
                       </div>
@@ -880,7 +930,7 @@ export default function Reconstruct3DPage() {
               {/* Calculate button */}
               <button
                 onClick={calculateRoutes}
-                disabled={!fireRoom || occupants.length === 0 || !navGraph}
+                disabled={!fireRoom || occupants.length === 0 || !currentPlan}
                 className="rounded-xl bg-red-600 px-5 py-2 text-xs font-semibold text-white hover:bg-red-700 transition disabled:opacity-40 shadow-sm"
               >
                 {needsRecalc && evacPlan ? "⚠ Recalculate Evacuation Routes" : "🔥 Calculate Evacuation Routes"}
