@@ -54,9 +54,10 @@ async def analyze(
 
     contents = await file.read()
 
-    image = Image.open(
-        io.BytesIO(contents)
-    ).convert("RGB")
+    try:
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+    except Exception as exc:
+        return {"success": False, "error": f"Invalid image upload: {exc}"}
 
     image_np = np.array(image)
 
@@ -76,12 +77,15 @@ async def analyze_and_route(
     file: UploadFile = File(...),
     mobility: str = "normal"
 ):
+    if mobility not in {"normal", "wheelchair", "elderly", "temporary_injury", "child"}:
+        mobility = "normal"
 
     contents = await file.read()
 
-    image = Image.open(
-        io.BytesIO(contents)
-    ).convert("RGB")
+    try:
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+    except Exception as exc:
+        return {"success": False, "error": f"Invalid image upload: {exc}"}
 
     image_np = np.array(image)
     img_h, img_w = image_np.shape[:2]
@@ -137,7 +141,9 @@ async def analyze_and_route(
     # Uses the original unfiltered detections for the graph
     # so the existing routing behaviour is preserved.
 
-    graph, exits = build_graph(raw_detections)
+    # Only confidence-filtered detections enter the routing graph.
+    # Low-confidence visual noise must never create a navigation edge.
+    graph, exits = build_graph(filtered)
     logger.info(
         "[AI] Digital twin nodes: %d, edges: %d",
         graph.number_of_nodes(),
@@ -174,11 +180,20 @@ async def analyze_and_route(
         d for d in filtered
         if d["type"] in {
             "fire",
+            "flames",
             "smoke",
             "obstacle",
             "blocked passage"
         }
     ]
+
+    detection_confidences = [
+        float(d.get("confidence", 0)) for d in filtered
+    ]
+    ai_confidence = (
+        sum(detection_confidences) / len(detection_confidences)
+        if detection_confidences else 0.0
+    )
 
     # -------------------------------
     # 8. GRAPH NODES + EDGES
@@ -222,6 +237,7 @@ async def analyze_and_route(
             "exits": exit_count,
             "hazards": len(hazards),
             "detections": len(filtered),
+            "confidence": round(ai_confidence, 2),
         },
 
         "detections": filtered,
@@ -445,7 +461,7 @@ async def demo_fire(
 # SAVE EDITED FLOOR PLAN
 # ==========================================================
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class FloorPlanSaveRequest(BaseModel):
@@ -454,7 +470,7 @@ class FloorPlanSaveRequest(BaseModel):
     units: str = "relative"
     approximate: bool = True
     confidence: float = 0.5
-    elements: list[dict] = []
+    elements: list[dict] = Field(default_factory=list)
 
 
 @app.post("/api/v1/building/save-floor-plan")

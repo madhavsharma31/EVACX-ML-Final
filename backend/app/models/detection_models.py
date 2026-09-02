@@ -77,6 +77,10 @@ class EvacClass(str, Enum):
     CORRIDOR = "corridor"
     ROOM_ENTRANCE = "room_entrance"
     FIRE_EXTINGUISHER = "fire_extinguisher"
+    FIRE = "fire"
+    SMOKE = "smoke"
+    OBSTACLE = "obstacle"
+    BLOCKED_PASSAGE = "blocked_passage"
     PERSON = "person"
 
 
@@ -97,6 +101,11 @@ YOLO_TO_EVAC: dict[str, EvacClass] = {
     "corridor": EvacClass.CORRIDOR,
     "hallway": EvacClass.CORRIDOR,
     "fire_extinguisher": EvacClass.FIRE_EXTINGUISHER,
+    "fire": EvacClass.FIRE,
+    "flames": EvacClass.FIRE,
+    "smoke": EvacClass.SMOKE,
+    "obstacle": EvacClass.OBSTACLE,
+    "blocked passage": EvacClass.BLOCKED_PASSAGE,
     "person": EvacClass.PERSON,
 }
 

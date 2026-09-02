@@ -70,9 +70,10 @@ def analyze_photo(
             y2=float(bbox_list[3]),
         )
 
-        evac_class = YOLO_TO_EVAC.get(
-            d["type"], EvacClass.DOOR
-        )
+        evac_class = YOLO_TO_EVAC.get(d["type"])
+        if evac_class is None:
+            # Never silently convert an unknown class into a door.
+            continue
 
         det = DetectedObject(
             photo_index=photo_index,

@@ -62,7 +62,7 @@ class SpatialLandmark(BaseModel):
     type: LandmarkType
     photo_index: int
     relative_position: str = "center"
-    connected_photo_indices: list[int] = []
+    connected_photo_indices: list[int] = Field(default_factory=list)
     floor_transition: bool = False
     wheelchair_accessible: bool = True
     confidence: float = 0.5
@@ -135,8 +135,8 @@ class FloorPlanElement(BaseModel):
 
 class FloorPlan(BaseModel):
     floor: int = 1
-    elements: list[FloorPlanElement] = []
-    rooms: list[RoomEstimate] = []
+    elements: list[FloorPlanElement] = Field(default_factory=list)
+    rooms: list[RoomEstimate] = Field(default_factory=list)
 
 
 # -------------------------------------------------------
@@ -157,5 +157,5 @@ class PhotoOverlap(BaseModel):
 
 
 class NavigationGraph(BaseModel):
-    nodes: list[BuildingNode] = []
-    edges: list[BuildingEdge] = []
+    nodes: list[BuildingNode] = Field(default_factory=list)
+    edges: list[BuildingEdge] = Field(default_factory=list)
