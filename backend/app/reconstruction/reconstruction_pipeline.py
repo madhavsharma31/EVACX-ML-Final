@@ -21,6 +21,211 @@ from app.reconstruction.geometry_reconstruction import reconstruct_geometry
 from app.reconstruction.floorplan_generator import generate_floor_plan
 from app.models.detection_models import ReferenceMeasurement
 
+
+def _build_occupants_from_detections(
+    filtered_detections: list[dict],
+    floor_plan,
+) -> tuple[list[dict], dict[str, int]]:
+    """
+    Convert AI-detected people into evacuation occupants.
+
+    Multiple overlapping photos may see the same person.
+    To avoid double-counting, person detections are grouped by
+    source photo and the photo with the highest number of
+    detected people is used as the primary occupant view.
+
+    Each detected person is then mapped to the nearest room
+    or corridor in the generated floor plan.
+    """
+
+    # ---------------------------------------------------------
+    # 1. Get person detections only
+    # ---------------------------------------------------------
+    people = [
+        d for d in filtered_detections
+        if d.get("type") == "person"
+    ]
+
+    rooms = [
+        e for e in floor_plan.elements
+        if e.type == "room"
+    ]
+
+    corridors = [
+        e for e in floor_plan.elements
+        if e.type == "corridor"
+    ]
+
+    locations = rooms + corridors
+
+    occupants: list[dict] = []
+
+    room_occupancy: dict[str, int] = {
+        room.id: 0
+        for room in rooms
+    }
+
+    if not people or not locations:
+        return occupants, room_occupancy
+
+    # ---------------------------------------------------------
+    # 2. Group people by source photo
+    # ---------------------------------------------------------
+    photos: dict[str, list[dict]] = {}
+
+    for person in people:
+        photo_id = (
+            person.get("image_id")
+            or person.get("photo_index")
+            or "default"
+        )
+
+        photo_id = str(photo_id)
+
+        photos.setdefault(photo_id, []).append(person)
+
+    # ---------------------------------------------------------
+    # 3. Pick the photo containing the most people
+    # ---------------------------------------------------------
+    best_photo_id, best_photo_people = max(
+        photos.items(),
+        key=lambda item: len(item[1]),
+    )
+
+    logger.info(
+        "[OCCUPANCY] Person detections by photo: %s",
+        {photo_id: len(items) for photo_id, items in photos.items()},
+    )
+
+    logger.info(
+        "[OCCUPANCY] Using photo '%s' with %d people "
+        "to avoid cross-photo duplicates",
+        best_photo_id,
+        len(best_photo_people),
+    )
+
+    # ---------------------------------------------------------
+    # 4. Convert selected detections into occupants
+    # ---------------------------------------------------------
+    for index, person in enumerate(best_photo_people, start=1):
+
+        bbox = person.get("bbox", [])
+
+        if len(bbox) != 4:
+            continue
+
+        try:
+            x1, y1, x2, y2 = map(float, bbox)
+        except (TypeError, ValueError):
+            continue
+
+        # -----------------------------------------------------
+        # Recover original image dimensions
+        # -----------------------------------------------------
+        image_w = float(person.get("image_width") or 0)
+        image_h = float(person.get("image_height") or 0)
+
+        if image_w <= 0 or image_h <= 0:
+            logger.warning(
+                "[OCCUPANCY] Missing image dimensions for person %d",
+                index,
+            )
+            continue
+
+        # -----------------------------------------------------
+        # Person center in normalized image coordinates
+        # -----------------------------------------------------
+        px = ((x1 + x2) / 2.0) / image_w
+        py = ((y1 + y2) / 2.0) / image_h
+
+        px = max(0.0, min(1.0, px))
+        py = max(0.0, min(1.0, py))
+
+        # -----------------------------------------------------
+        # Convert to generated floor-plan coordinates
+        # -----------------------------------------------------
+        fx = px * floor_plan.width
+        fy = py * floor_plan.height
+
+        # -----------------------------------------------------
+        # 5. Find room containing the person
+        # -----------------------------------------------------
+        containing_room = None
+
+        for room in rooms:
+            inside_x = (
+                room.x <= fx <= room.x + room.width
+            )
+
+            inside_y = (
+                room.y <= fy <= room.y + room.height
+            )
+
+            if inside_x and inside_y:
+                containing_room = room
+                break
+
+        # -----------------------------------------------------
+        # 6. If not inside a room, use nearest location
+        # -----------------------------------------------------
+        if containing_room is not None:
+            location = containing_room
+
+        else:
+
+            def location_distance(element):
+                cx = element.x + element.width / 2.0
+                cy = element.y + element.height / 2.0
+
+                return (
+                    (cx - fx) ** 2 +
+                    (cy - fy) ** 2
+                ) ** 0.5
+
+            location = min(
+                locations,
+                key=location_distance,
+            )
+
+        # -----------------------------------------------------
+        # 7. Update room occupancy
+        # -----------------------------------------------------
+        if location.type == "room":
+            room_occupancy[location.id] += 1
+
+        # -----------------------------------------------------
+        # 8. Create occupant
+        # -----------------------------------------------------
+        confidence = float(
+            person.get("confidence", 0.0)
+        )
+
+        occupants.append({
+            "id": f"person_{index}",
+            "name": f"Person {index}",
+            "location_id": location.id,
+            "mobility": "normal",
+            "confidence": round(confidence, 3),
+            "source": "ai_person_detection",
+            "x": round(fx, 2),
+            "y": round(fy, 2),
+        })
+
+    # ---------------------------------------------------------
+    # 9. Log final result
+    # ---------------------------------------------------------
+    logger.info(
+        "[OCCUPANCY] Final occupants: %d",
+        len(occupants),
+    )
+
+    logger.info(
+        "[OCCUPANCY] Room occupancy: %s",
+        room_occupancy,
+    )
+
+    return occupants, room_occupancy
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,6 +246,8 @@ class ReconstructionResult:
         self.overlap_details: list[dict] = []
         self.validation_issues: list[str] = []
         self.error: str | None = None
+        self.occupants: list[dict] = []
+        self.room_occupancy: dict[str, int] = {}
 
     def to_response(self) -> dict:
         if self.fused_landmarks:
@@ -69,6 +276,8 @@ class ReconstructionResult:
                 "disconnected_photos": self.disconnected_photos,
                 "landmark_counts": lm_by_type,
             },
+            "occupants": self.occupants,
+            "room_occupancy": self.room_occupancy,
             "detections": {
                 "raw_count": len(self.raw_detections),
                 "filtered_count": len(self.filtered_detections),
@@ -156,9 +365,12 @@ def run_reconstruction(
         for i, (img, img_id) in enumerate(zip(images, image_ids)):
             try:
                 yolo_dets = detector.analyze(img)
+
                 for d in yolo_dets:
                     d["image_id"] = img_id
                     d["photo_index"] = i
+                    d["image_width"] = img.shape[1]
+                    d["image_height"] = img.shape[0]
                 all_raw.extend(yolo_dets)
 
                 cv_dets = detect_architectural(img)
@@ -243,6 +455,25 @@ def run_reconstruction(
     result.floor_plan = floor_plan
 
     # =============================================
+    # PHASE 7.5: Build occupants from AI detections
+    # =============================================
+    logger.info("[RECONSTRUCTION] Mapping detected people to rooms")
+
+    occupants, room_occupancy = _build_occupants_from_detections(
+    all_filtered,
+    floor_plan,
+   )
+
+    result.occupants = occupants
+    result.room_occupancy = room_occupancy
+
+    logger.info(
+        "[RECONSTRUCTION] Detected %d occupants across %d rooms",
+        len(occupants),
+        len(room_occupancy),
+    )
+
+    # =============================================
     # PHASE 8: Validation
     # =============================================
     issues = _validate_floor_plan(floor_plan, fused)
@@ -276,8 +507,11 @@ def _single_image_fallback(
 
     if detector is not None:
         yolo_dets = detector.analyze(image)
+
         for d in yolo_dets:
             d["image_id"] = image_id
+            d["image_width"] = image.shape[1]
+            d["image_height"] = image.shape[0]
         cv_dets = detect_architectural(image)
         for d in cv_dets:
             d["image_id"] = image_id
