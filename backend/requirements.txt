@@ -6,4 +6,8 @@ opencv-python
 numpy
 networkx
 pillow
+<<<<<<< HEAD
 pydantic
+=======
+python-magic-bin
+>>>>>>> origin/main

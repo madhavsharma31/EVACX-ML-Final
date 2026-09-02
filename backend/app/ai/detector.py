@@ -1,5 +1,8 @@
 from ultralytics import YOLOWorld
+<<<<<<< HEAD
 import cv2
+=======
+>>>>>>> origin/main
 import numpy as np
 
 
@@ -18,36 +21,50 @@ class EnvironmentDetector:
             "person",
             "door",
             "doorway",
+<<<<<<< HEAD
             "room door",
             "office door",
             "wooden door",
             "glass door",
+=======
+>>>>>>> origin/main
             "entrance",
             "exit door",
             "emergency exit",
             "exit sign",
+<<<<<<< HEAD
             "fire exit sign",
+=======
+>>>>>>> origin/main
             "stairs",
             "staircase",
             "stairway",
             "ramp",
             "wheelchair ramp",
             "elevator",
+<<<<<<< HEAD
             "lift",
+=======
+>>>>>>> origin/main
             "corridor",
             "hallway",
             "fire",
             "flames",
             "smoke",
             "obstacle",
+<<<<<<< HEAD
             "blocked passage",
             "fire extinguisher"
+=======
+            "blocked passage"
+>>>>>>> origin/main
         ]
 
         self.model.set_classes(self.classes)
 
         print("YOLO-World ready.")
 
+<<<<<<< HEAD
     def _preprocess(self, image: np.ndarray) -> np.ndarray:
         """Enhance image for better detection of interior features.
 
@@ -72,6 +89,13 @@ class EnvironmentDetector:
         results = self.model.predict(
             image,
             conf=0.03,
+=======
+    def analyze(self, image):
+
+        results = self.model.predict(
+            image,
+            conf=0.08,
+>>>>>>> origin/main
             iou=0.45,
             imgsz=1280,
             verbose=False
