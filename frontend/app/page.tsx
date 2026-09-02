@@ -3,24 +3,16 @@
 import {
   useEffect,
   useState,
-<<<<<<< HEAD
   type ChangeEvent,
 } from "react";
 import Link from "next/link";
-=======
-} from "react";
->>>>>>> origin/main
 
 type Mobility =
   | "normal"
   | "wheelchair"
   | "elderly"
-<<<<<<< HEAD
   | "temporary_injury"
   | "child";
-=======
-  | "temporary_injury";
->>>>>>> origin/main
 
 type RouteData = {
   success: boolean;
@@ -29,10 +21,7 @@ type RouteData = {
   cost: number;
   risk: string;
   mobility: string;
-<<<<<<< HEAD
   confidence?: number;
-=======
->>>>>>> origin/main
 };
 
 type DemoResponse = {
@@ -47,13 +36,6 @@ type DemoResponse = {
   route: RouteData;
 };
 
-<<<<<<< HEAD
-=======
-const API =
-  process.env.NEXT_PUBLIC_BACKEND_HTTP ||
-  "http://127.0.0.1:8000";
-
->>>>>>> origin/main
 export default function Home() {
   const [mobility, setMobility] =
     useState<Mobility>("normal");
@@ -85,8 +67,8 @@ const [environment, setEnvironment] =
     exits: 3,
     hazards: 0,
     detections: 0,
+    confidence: 0,
   });
-<<<<<<< HEAD
 
 const [floorPlan, setFloorPlan] = useState<{
   width: number;
@@ -106,8 +88,6 @@ const [floorPlan, setFloorPlan] = useState<{
     connected_door_id?: string;
   }>;
 } | null>(null);
-=======
->>>>>>> origin/main
 async function analyzeBuilding() {
   if (!selectedFile) {
     setError("Please select a building image first.");
@@ -170,7 +150,6 @@ async function analyzeBuilding() {
 
         detections:
           data.environment.detections ?? 0,
-<<<<<<< HEAD
         confidence:
           data.environment.confidence ?? 0,
       });
@@ -181,11 +160,6 @@ async function analyzeBuilding() {
       setFloorPlan(data.floor_plan);
     }
 
-=======
-      });
-    }
-
->>>>>>> origin/main
     if (data.route) {
       setRoute(data.route);
     }
@@ -195,13 +169,9 @@ async function analyzeBuilding() {
     console.error(err);
 
     setError(
-<<<<<<< HEAD
       err instanceof Error
         ? err.message
         : "AI analysis failed. Make sure the FastAPI server is running."
-=======
-      "AI analysis failed. Make sure the FastAPI server is running."
->>>>>>> origin/main
     );
 
   } finally {
@@ -240,19 +210,11 @@ function handleImageSelect(
     try {
       const endpoint =
         selectedScenario === "fire"
-<<<<<<< HEAD
           ? "/api/demo-fire"
           : "/api/demo-route";
 
       const response = await fetch(
         `${endpoint}?mobility=${selectedMobility}`,
-=======
-          ? "/api/demo/fire"
-          : "/api/demo/route";
-
-      const response = await fetch(
-        `${API}${endpoint}?mobility=${selectedMobility}`,
->>>>>>> origin/main
         {
           method: "POST",
         }
@@ -272,13 +234,9 @@ function handleImageSelect(
       console.error(err);
 
       setError(
-<<<<<<< HEAD
         err instanceof Error
           ? err.message
           : "Unable to connect to the evacuation engine."
-=======
-        "Unable to connect to the evacuation engine."
->>>>>>> origin/main
       );
     } finally {
       setLoading(false);
@@ -340,7 +298,6 @@ function handleImageSelect(
                 </p>
               </div>
 
-<<<<<<< HEAD
               <Link
                 href="/reconstruct"
                 className="rounded-lg border border-purple-500/30 bg-purple-500/10 px-4 py-2 text-xs font-medium text-purple-300 transition hover:bg-purple-500/20"
@@ -354,8 +311,6 @@ function handleImageSelect(
                 🏗️ Multi-Photo Reconstruct
               </Link>
 
-=======
->>>>>>> origin/main
             </div>
           </div>
 
@@ -509,11 +464,7 @@ function handleImageSelect(
           <StatCard
             icon="🧠"
             label="AI Confidence"
-<<<<<<< HEAD
             value={`${Math.round(environment.confidence * 100)}%`}
-=======
-            value="87%"
->>>>>>> origin/main
             sub="environment analysis"
           />
 
@@ -748,15 +699,7 @@ function handleImageSelect(
 
                     <InfoBox
                       label="Confidence"
-<<<<<<< HEAD
                       value={`${Math.round((route.confidence ?? 0.7) * 100)}%`}
-=======
-                      value={
-                        route.risk === "LOW"
-                          ? "HIGH"
-                          : "MEDIUM"
-                      }
->>>>>>> origin/main
                     />
 
                   </div>
@@ -830,12 +773,9 @@ function handleImageSelect(
                 <option value="temporary_injury">
                   🩼 Temporary Injury
                 </option>
-<<<<<<< HEAD
                 <option value="child">
                   🧒 Child
                 </option>
-=======
->>>>>>> origin/main
 
               </select>
 
@@ -926,7 +866,6 @@ function handleImageSelect(
 
         </div>
 
-<<<<<<< HEAD
         {/* GENERATED FLOOR PLAN */}
 
         {floorPlan && (
@@ -1023,8 +962,6 @@ function handleImageSelect(
           </section>
         )}
 
-=======
->>>>>>> origin/main
       </div>
 
     </main>
@@ -1217,7 +1154,6 @@ function formatNode(node: string) {
     names[node] ||
     node.replaceAll("_", " ").toUpperCase()
   );
-<<<<<<< HEAD
 }
 
 
@@ -1234,6 +1170,4 @@ function LegendRow({
       <span className="text-slate-400">{text}</span>
     </div>
   );
-=======
->>>>>>> origin/main
 }

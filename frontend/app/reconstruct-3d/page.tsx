@@ -7,7 +7,7 @@ import type { RouteOverlay, OccupantOverlay } from "@/components/floorplan/Floor
 import SimulationControls from "@/components/SimulationControls";
 import type { SimState } from "@/components/SimulationControls";
 import { getElementCenter } from "@/lib/floorplan-graph";
-import type { EvacuationPlan, RouteResult, MobilityType } from "@/lib/evacuation-routing";
+import type { EvacuationPlan, RouteResult } from "@/lib/evacuation-routing";
 
 /* -------------------------------------------------------
    Types
@@ -70,6 +70,20 @@ interface ReconResult {
     overall_confidence: number;
     warning?: string;
   };
+  occupants?: Array<{
+    id: string;
+    name?: string;
+    location_id: string;
+    mobility?: string;
+    confidence?: number;
+    source?: string;
+    x?: number;
+    y?: number;
+  }>;
+
+  room_occupancy?: Record<string, number>;
+
+
 }
 
 const STEPS = ["Upload Images", "Analyse Overlap", "Match Landmarks", "Reconstruct Geometry", "Generate Floor Plan", "Validate"];
@@ -107,7 +121,14 @@ export default function Reconstruct3DPage() {
   /* ---- Simulation state ---- */
   const [fireRoom, setFireRoom] = useState("");
   const [occupants, setOccupants] = useState<Array<{
-    id: string; name: string; location_id: string; mobility: string;
+    id: string;
+    name: string;
+    location_id: string;
+    mobility: string;
+    confidence?: number;
+    source?: string;
+    x?: number;
+    y?: number;
   }>>([]);
   const [selectedOccupant, setSelectedOccupant] = useState<string>("");
 
@@ -129,6 +150,45 @@ export default function Reconstruct3DPage() {
   const corridors = currentPlan?.elements.filter((e) => e.type === "corridor") || [];
   const exits = currentPlan?.elements.filter((e) => e.type === "exit") || [];
   const allLocations = [...rooms, ...corridors];
+
+  /*
+   * AI OCCUPANCY SYNC
+   *
+   * People detected by the reconstruction backend are the simulation
+   * occupants. Do not create placeholder people on the frontend.
+   */
+  useEffect(() => {
+    if (!result) {
+      setOccupants([]);
+      setSelectedOccupant("");
+      return;
+    }
+
+    const detected = (result.occupants || []).map((person, index) => ({
+      id: person.id || `person_${index + 1}`,
+      name: person.name || `Person ${index + 1}`,
+      location_id:
+        person.location_id ||
+        rooms[0]?.id ||
+        corridors[0]?.id ||
+        "",
+      mobility: person.mobility || "normal",
+      confidence: person.confidence,
+      source: person.source || "AI detection",
+      x: person.x,
+      y: person.y,
+    }));
+
+    setOccupants(detected);
+    setSelectedOccupant(detected[0]?.id || "");
+
+    // A new reconstruction means old routes/animation are stale.
+    setEvacPlan(null);
+    setNeedsRecalc(false);
+    setAnimStatuses(new Map());
+    animPositionsRef.current = new Map();
+    setSimState("idle");
+  }, [result]);
 
   /* Any floor-plan change invalidates previously calculated routes. */
   useEffect(() => {
@@ -171,6 +231,13 @@ export default function Reconstruct3DPage() {
     setProcessing(true);
     setError("");
     setResult(null);
+    setOccupants([]);
+    setSelectedOccupant("");
+    setEvacPlan(null);
+    setNeedsRecalc(false);
+    setAnimStatuses(new Map());
+    animPositionsRef.current = new Map();
+    setSimState("idle");
     setProgressStage(1);
 
     const timer = setInterval(() => {
@@ -226,17 +293,31 @@ export default function Reconstruct3DPage() {
   };
 
   /* ---- Occupant management ---- */
-  const addOccupant = () => {
-    const firstLocation = rooms[0]?.id || corridors[0]?.id || exits[0]?.id || "";
-    setOccupants((prev) => [
-      ...prev,
-      {
-        id: `person_${Date.now()}`,
-        name: `Person ${prev.length + 1}`,
-        location_id: firstLocation,
-        mobility: "normal",
-      },
-    ]);
+  const updateOccupant = (
+    index: number,
+    patch: Partial<(typeof occupants)[number]>
+  ) => {
+    setOccupants((prev) => {
+      const next = [...prev];
+      if (!next[index]) return prev;
+      next[index] = { ...next[index], ...patch };
+      return next;
+    });
+    setNeedsRecalc(true);
+  };
+
+  const removeOccupant = (index: number) => {
+    setOccupants((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+
+      if (next.length === 0) {
+        setSelectedOccupant("");
+      } else if (!next.some((o) => o.id === selectedOccupant)) {
+        setSelectedOccupant(next[0].id);
+      }
+
+      return next;
+    });
     setNeedsRecalc(true);
   };
 
@@ -372,7 +453,30 @@ export default function Reconstruct3DPage() {
         };
       }
 
-      // Default: center of their room
+      // Prefer the AI-detected floor-plan position when available.
+      if (
+        typeof occ.x === "number" &&
+        typeof occ.y === "number" &&
+        Number.isFinite(occ.x) &&
+        Number.isFinite(occ.y)
+      ) {
+        const routeResult = evacPlan?.routes.find((r) => r.occupantId === occ.id);
+        let status: OccupantOverlay["status"] = "waiting";
+        if (routeResult) {
+          if (!routeResult.success) status = routeResult.status;
+        }
+
+        return {
+          id: occ.id,
+          x: occ.x,
+          y: occ.y,
+          mobility: occ.mobility,
+          name: occ.name,
+          status,
+        };
+      }
+
+      // Fallback: center of their assigned room.
       const center = getElementCenter(currentPlan.elements, occ.location_id);
       if (center) {
         const routeResult = evacPlan?.routes.find((r) => r.occupantId === occ.id);
@@ -757,8 +861,18 @@ export default function Reconstruct3DPage() {
               <AnalysisStat label="Photos" value={String(result.reconstruction.photos_received)} />
               <AnalysisStat label="Overlaps" value={String(result.reconstruction.confirmed_overlaps)} />
               <AnalysisStat label="Landmarks" value={String(result.detections?.fused_landmarks.length || 0)} />
+              <AnalysisStat label="Occupants" value={String(result.occupants?.length || 0)} highlight />
               <AnalysisStat label="Confidence" value={Math.round((result.metadata?.overall_confidence || 0) * 100) + "%"} highlight />
             </div>
+            {result.occupants && result.occupants.length > 0 && (
+              <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-[11px] text-teal-700">
+                ✓ AI detected {result.occupants.length} occupant{result.occupants.length === 1 ? "" : "s"}.
+                {" "}
+                {result.room_occupancy
+                  ? `${Object.keys(result.room_occupancy).length} room${Object.keys(result.room_occupancy).length === 1 ? "" : "s"} contain detected people.`
+                  : ""}
+              </div>
+            )}
             {result.metadata?.overall_confidence && result.metadata.overall_confidence > 0 && (
               <button onClick={scrollToFloorPlan} className="mt-4 text-xs text-teal-600 hover:text-teal-700 transition">
                 View Floor Plan ↓
@@ -870,60 +984,106 @@ export default function Reconstruct3DPage() {
                 {/* Occupants */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-[11px] text-slate-400 uppercase tracking-wider">Occupants</label>
-                    <button onClick={addOccupant}
-                      className="rounded bg-teal-50 border border-teal-200 px-2 py-0.5 text-[10px] text-teal-600 hover:bg-teal-100 transition">
-                      + Add Person
-                    </button>
+                    <div>
+                      <label className="text-[11px] text-slate-400 uppercase tracking-wider">
+                        AI-Detected Occupants
+                      </label>
+                      <p className="mt-0.5 text-[10px] text-slate-400">
+                        {occupants.length} people detected from uploaded photos
+                      </p>
+                    </div>
+                    {result?.room_occupancy && Object.keys(result.room_occupancy).length > 0 && (
+                      <span className="rounded bg-teal-50 border border-teal-200 px-2 py-0.5 text-[10px] text-teal-700">
+                        {Object.keys(result.room_occupancy).length} occupied rooms
+                      </span>
+                    )}
                   </div>
+
                   {occupants.length === 0 && (
-                    <p className="text-[10px] text-slate-400">No occupants added yet.</p>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                      <p className="text-[10px] text-amber-700">
+                        No people were returned by the AI detector.
+                      </p>
+                    </div>
                   )}
+
                   {occupants.map((occ, idx) => (
                     <div key={occ.id} className="rounded-lg bg-slate-50 border border-slate-200 p-2 space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <input
-                          value={occ.name}
-                          onChange={(e) => {
-                            const next = [...occupants];
-                            next[idx] = { ...next[idx], name: e.target.value };
-                            setOccupants(next);
-                          }}
-                          className="bg-transparent text-xs text-slate-700 outline-none w-24"
-                        />
-                        <button onClick={() => setOccupants((p) => p.filter((_, i) => i !== idx))}
-                          className="text-[10px] text-red-400 hover:text-red-600">✕</button>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-slate-700">{occ.name}</span>
+                          <span className="rounded bg-teal-50 px-1.5 py-0.5 text-[9px] text-teal-700">
+                            AI detected
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => removeOccupant(idx)}
+                          className="text-[10px] text-red-400 hover:text-red-600"
+                          title="Remove occupant"
+                        >
+                          ✕
+                        </button>
                       </div>
+
                       <select
                         value={occ.location_id}
-                        onChange={(e) => {
-                          const next = [...occupants];
-                          next[idx] = { ...next[idx], location_id: e.target.value };
-                          setOccupants(next);
-                        }}
+                        onChange={(e) => updateOccupant(idx, { location_id: e.target.value })}
                         className="w-full rounded bg-white border border-slate-200 px-2 py-1 text-[10px] text-slate-700 outline-none"
                       >
                         {allLocations.map((l) => (
                           <option key={l.id} value={l.id}>{l.id}</option>
                         ))}
                       </select>
-                      <div className="flex gap-2">
+
+                      <div className="flex gap-2 flex-wrap">
                         {["normal", "wheelchair", "elderly", "temporary_injury", "child"].map((m) => (
                           <label key={m} className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer">
-                            <input type="radio" name={`mobility-${occ.id}`} checked={occ.mobility === m}
-                              onChange={() => {
-                                const next = [...occupants];
-                                next[idx] = { ...next[idx], mobility: m };
-                                setOccupants(next);
-                              }}
+                            <input
+                              type="radio"
+                              name={`mobility-${occ.id}`}
+                              checked={occ.mobility === m}
+                              onChange={() => updateOccupant(idx, { mobility: m })}
                               className="accent-teal-600"
                             />
-                            {m === "wheelchair" ? "♿ Wheelchair" : m === "elderly" ? "👴 Elderly" : m === "temporary_injury" ? "🩼 Injury" : m === "child" ? "🧒 Child" : "✓ Normal"}
+                            {m === "wheelchair"
+                              ? "♿ Wheelchair"
+                              : m === "elderly"
+                              ? "👴 Elderly"
+                              : m === "temporary_injury"
+                              ? "🩼 Injury"
+                              : m === "child"
+                              ? "🧒 Child"
+                              : "✓ Normal"}
                           </label>
                         ))}
                       </div>
+
+                      {occ.confidence !== undefined && (
+                        <div className="text-[9px] text-slate-400">
+                          Detection confidence: {Math.round(occ.confidence * 100)}%
+                        </div>
+                      )}
                     </div>
                   ))}
+
+                  {result?.room_occupancy && Object.keys(result.room_occupancy).length > 0 && (
+                    <div className="rounded-lg border border-slate-200 bg-white p-3">
+                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        Room Occupancy
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {Object.entries(result.room_occupancy).map(([roomId, count]) => (
+                          <div
+                            key={roomId}
+                            className="flex items-center justify-between rounded bg-slate-50 px-2 py-1.5 text-[10px]"
+                          >
+                            <span className="text-slate-600">{roomId}</span>
+                            <span className="font-semibold text-teal-700">{count} people</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
